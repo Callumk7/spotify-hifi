@@ -26,10 +26,13 @@ interface SpotifyTrack {
   duration_ms: number;
 }
 
+const STORAGE_KEY = "virtualHiFi_loadedCDs";
+
 export const VirtualHiFi: FC = () => {
-  const [loadedCDs, setLoadedCDs] = useState<(CD | null)[]>(
-    new Array(12).fill(null)
-  );
+  const [loadedCDs, setLoadedCDs] = useState<(CD | null)[]>(() => {
+    const savedCDs = localStorage.getItem(STORAGE_KEY);
+    return savedCDs ? JSON.parse(savedCDs) : new Array(12).fill(null);
+  });
   const [currentCDIndex, setCurrentCDIndex] = useState<number>(0);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -103,6 +106,20 @@ export const VirtualHiFi: FC = () => {
           });
           setPlaybackState(state);
           setPlaybackPosition(state.position);
+
+          // Check if we've reached the end of the track
+          if (
+            state.position === 0 &&
+            state.paused &&
+            currentCD &&
+            currentTrackIndex === currentCD.tracks.length - 1
+          ) {
+            console.log("End of album reached, attempting to play next album");
+            nextCD();
+          } else if (state.position === 0 && state.paused && currentCD) {
+            console.log("Track finished, playing next track");
+            nextTrack();
+          }
         } else {
           console.warn("No playback state received");
         }
@@ -115,7 +132,12 @@ export const VirtualHiFi: FC = () => {
         window.clearInterval(intervalId);
       }
     };
-  }, [isPlaying]);
+  }, [isPlaying, currentCD, currentTrackIndex]); // Add currentCD and currentTrackIndex to dependencies
+
+  // Save CDs to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(loadedCDs));
+  }, [loadedCDs]);
 
   const togglePlayPause = async () => {
     if (!currentCD || !isInitialized || !currentTrack) {
@@ -164,32 +186,30 @@ export const VirtualHiFi: FC = () => {
     setIsPlaying(false);
   };
 
-  const nextCD = () => {
-    setCurrentCDIndex((prev) => (prev + 1) % 12);
-    setCurrentTrackIndex(0);
-    setIsPlaying(false);
-    setPlaybackPosition(0);
-  };
+  const handleRemoveCD = (index: number, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the slot click
+    const newLoadedCDs = [...loadedCDs];
+    newLoadedCDs[index] = null;
+    setLoadedCDs(newLoadedCDs);
 
-  const previousCD = () => {
-    setCurrentCDIndex((prev) => (prev - 1 + 12) % 12);
-    setCurrentTrackIndex(0);
-    setIsPlaying(false);
-    setPlaybackPosition(0);
+    // If we're removing the current CD, stop playback
+    if (index === currentCDIndex) {
+      setIsPlaying(false);
+      setCurrentTrackIndex(0);
+      setPlaybackPosition(0);
+    }
   };
 
   const nextTrack = async () => {
-    if (!currentCD || !isPlaying) {
-      console.warn("Cannot play next track:", {
-        hasCD: !!currentCD,
-        isPlaying,
-      });
+    if (!currentCD) {
+      console.warn("Cannot play next track: no CD loaded");
       return;
     }
 
+    // If we're not at the end of the current CD
     if (currentTrackIndex < currentCD.tracks.length - 1) {
       const nextTrackId = currentCD.tracks[currentTrackIndex + 1].id;
-      console.log("Playing next track:", {
+      console.log("Playing next track on current CD:", {
         currentIndex: currentTrackIndex,
         nextTrackId,
         trackName: currentCD.tracks[currentTrackIndex + 1].name,
@@ -198,26 +218,56 @@ export const VirtualHiFi: FC = () => {
         await play(nextTrackId);
         setCurrentTrackIndex((prev) => prev + 1);
         setPlaybackPosition(0);
+        if (!isPlaying) setIsPlaying(true);
       } catch (error) {
         console.error("Failed to play next track:", error);
       }
     } else {
-      console.log("No next track available");
+      // We're at the end of the current CD, try to play the next CD
+      let nextCDIndex = (currentCDIndex + 1) % 12;
+      const nextCD = loadedCDs[nextCDIndex];
+
+      // Find the next available CD
+      while (!nextCD && nextCDIndex !== currentCDIndex) {
+        nextCDIndex = (nextCDIndex + 1) % 12;
+        if (loadedCDs[nextCDIndex]) break;
+      }
+
+      if (loadedCDs[nextCDIndex] && nextCDIndex !== currentCDIndex) {
+        console.log("Moving to next CD:", {
+          fromCD: currentCDIndex,
+          toCD: nextCDIndex,
+        });
+        const nextCDTracks = loadedCDs[nextCDIndex]?.tracks;
+        if (!nextCDTracks?.[0]?.id) {
+          console.error("Next CD tracks are invalid");
+          return;
+        }
+        setCurrentCDIndex(nextCDIndex);
+        setCurrentTrackIndex(0);
+        setPlaybackPosition(0);
+        try {
+          await play(nextCDTracks[0].id);
+          if (!isPlaying) setIsPlaying(true);
+        } catch (error) {
+          console.error("Failed to start next CD:", error);
+        }
+      } else {
+        console.log("No more CDs available to play");
+      }
     }
   };
 
   const previousTrack = async () => {
-    if (!currentCD || !isPlaying) {
-      console.warn("Cannot play previous track:", {
-        hasCD: !!currentCD,
-        isPlaying,
-      });
+    if (!currentCD) {
+      console.warn("Cannot play previous track: no CD loaded");
       return;
     }
 
+    // If we're not at the start of the current CD
     if (currentTrackIndex > 0) {
       const prevTrackId = currentCD.tracks[currentTrackIndex - 1].id;
-      console.log("Playing previous track:", {
+      console.log("Playing previous track on current CD:", {
         currentIndex: currentTrackIndex,
         prevTrackId,
         trackName: currentCD.tracks[currentTrackIndex - 1].name,
@@ -226,11 +276,109 @@ export const VirtualHiFi: FC = () => {
         await play(prevTrackId);
         setCurrentTrackIndex((prev) => prev - 1);
         setPlaybackPosition(0);
+        if (!isPlaying) setIsPlaying(true);
       } catch (error) {
         console.error("Failed to play previous track:", error);
       }
     } else {
-      console.log("No previous track available");
+      // We're at the start of the current CD, try to play the previous CD
+      let prevCDIndex = (currentCDIndex - 1 + 12) % 12;
+      const prevCD = loadedCDs[prevCDIndex];
+
+      // Find the previous available CD
+      while (!prevCD && prevCDIndex !== currentCDIndex) {
+        prevCDIndex = (prevCDIndex - 1 + 12) % 12;
+        if (loadedCDs[prevCDIndex]) break;
+      }
+
+      if (loadedCDs[prevCDIndex] && prevCDIndex !== currentCDIndex) {
+        const prevCD = loadedCDs[prevCDIndex];
+        if (!prevCD?.tracks?.length) {
+          console.error("Previous CD tracks are invalid");
+          return;
+        }
+        const lastTrackIndex = prevCD.tracks.length - 1;
+        console.log("Moving to previous CD:", {
+          fromCD: currentCDIndex,
+          toCD: prevCDIndex,
+          toTrack: lastTrackIndex,
+        });
+        setCurrentCDIndex(prevCDIndex);
+        setCurrentTrackIndex(lastTrackIndex);
+        setPlaybackPosition(0);
+        try {
+          await play(prevCD.tracks[lastTrackIndex].id);
+          if (!isPlaying) setIsPlaying(true);
+        } catch (error) {
+          console.error("Failed to start previous CD:", error);
+        }
+      } else {
+        console.log("No previous CDs available to play");
+      }
+    }
+  };
+
+  const nextCD = async () => {
+    let nextCDIndex = (currentCDIndex + 1) % 12;
+    const nextCD = loadedCDs[nextCDIndex];
+
+    // Find the next available CD
+    while (!nextCD && nextCDIndex !== currentCDIndex) {
+      nextCDIndex = (nextCDIndex + 1) % 12;
+      if (loadedCDs[nextCDIndex]) break;
+    }
+
+    if (loadedCDs[nextCDIndex] && nextCDIndex !== currentCDIndex) {
+      console.log("Switching to next CD:", {
+        fromCD: currentCDIndex,
+        toCD: nextCDIndex,
+      });
+      const nextCDTracks = loadedCDs[nextCDIndex]?.tracks;
+      if (!nextCDTracks?.[0]?.id) {
+        console.error("Next CD tracks are invalid");
+        return;
+      }
+      setCurrentCDIndex(nextCDIndex);
+      setCurrentTrackIndex(0);
+      setPlaybackPosition(0);
+      try {
+        await play(nextCDTracks[0].id);
+        setIsPlaying(true);
+      } catch (error) {
+        console.error("Failed to start next CD:", error);
+      }
+    }
+  };
+
+  const previousCD = async () => {
+    let prevCDIndex = (currentCDIndex - 1 + 12) % 12;
+    const prevCD = loadedCDs[prevCDIndex];
+
+    // Find the previous available CD
+    while (!prevCD && prevCDIndex !== currentCDIndex) {
+      prevCDIndex = (prevCDIndex - 1 + 12) % 12;
+      if (loadedCDs[prevCDIndex]) break;
+    }
+
+    if (loadedCDs[prevCDIndex] && prevCDIndex !== currentCDIndex) {
+      console.log("Switching to previous CD:", {
+        fromCD: currentCDIndex,
+        toCD: prevCDIndex,
+      });
+      const prevCDTracks = loadedCDs[prevCDIndex]?.tracks;
+      if (!prevCDTracks?.[0]?.id) {
+        console.error("Previous CD tracks are invalid");
+        return;
+      }
+      setCurrentCDIndex(prevCDIndex);
+      setCurrentTrackIndex(0);
+      setPlaybackPosition(0);
+      try {
+        await play(prevCDTracks[0].id);
+        setIsPlaying(true);
+      } catch (error) {
+        console.error("Failed to start previous CD:", error);
+      }
     }
   };
 
@@ -284,6 +432,14 @@ export const VirtualHiFi: FC = () => {
                 <div className={styles["cd-info"]}>
                   <h3>{cd.albumName}</h3>
                   <p>{cd.artistName}</p>
+                  <button
+                    type="button"
+                    className={styles["remove-cd"]}
+                    onClick={(e) => handleRemoveCD(index, e)}
+                    aria-label="Remove CD"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
             ) : (
