@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Virtual HiFi</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Load Spotify SDK first -->
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script>
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        window.Spotify = Spotify;
+        console.log("Spotify Web Playback SDK loaded");
+      };
+    </script>
+    <!-- Load our app after -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

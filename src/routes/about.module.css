@@ -1,0 +1,33 @@
+.about {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+
+.section {
+  margin-top: 2rem;
+}
+
+.section p {
+  margin-bottom: 1.5rem;
+  line-height: 1.7;
+}
+
+.section ul {
+  list-style-type: none;
+  padding-left: 1.5rem;
+}
+
+.section li {
+  color: var(--color-text-secondary);
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+
+.section li::before {
+  content: "•";
+  color: var(--color-primary);
+  position: absolute;
+  left: -1.5rem;
+  font-size: 1.2em;
+}
