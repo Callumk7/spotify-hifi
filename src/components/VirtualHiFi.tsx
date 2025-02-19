@@ -257,6 +257,15 @@ export const VirtualHiFi: FC = () => {
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
+  const handleSlotClick = (index: number) => {
+    if (loadedCDs[index]) {
+      setCurrentCDIndex(index);
+    } else {
+      setCurrentCDIndex(index);
+      setShowSearch(true);
+    }
+  };
+
   return (
     <div className={styles["virtual-hifi"]}>
       <div className={styles["cd-rack"]}>
@@ -266,7 +275,7 @@ export const VirtualHiFi: FC = () => {
             className={`${styles["cd-slot"]} ${
               index === currentCDIndex ? styles.active : ""
             }`}
-            onClick={() => setCurrentCDIndex(index)}
+            onClick={() => handleSlotClick(index)}
             type="button"
           >
             {cd ? (
